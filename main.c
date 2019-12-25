@@ -56,6 +56,9 @@ int main(int argc, const char* argv[]) {
         help();
         return 1;
     }
+
+    setbuf(stdout, NULL); //buffering messes with logging when the program crashes
+
     SDL_Window* window = SDL_CreateWindow("icloudframe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 0, 0, SDL_WINDOW_FULLSCREEN | SDL_WINDOW_RESIZABLE);
     assert(window);
 
