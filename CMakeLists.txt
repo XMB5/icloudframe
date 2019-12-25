@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.13)
+project(icloudframe C)
+
+INCLUDE(FindPkgConfig)
+
+PKG_SEARCH_MODULE(SDL2 REQUIRED sdl2)
+PKG_SEARCH_MODULE(SDL2IMAGE REQUIRED SDL2_image>=2.0.0)
+PKG_SEARCH_MODULE(SDL2TTF REQUIRED SDL2_ttf>=2.0.0)
+PKG_SEARCH_MODULE(JSONC REQUIRED json-c)
+PKG_SEARCH_MODULE(HEIF REQUIRED libheif)
+
+set(CMAKE_C_STANDARD 11)
+
+add_executable(icloudframe main.c media.c media.h)
+target_link_libraries(icloudframe ${SDL2IMAGE_LIBRARIES} ${SDL2_LIBRARIES} ${JSONC_LIBRARIES} ${HEIF_LIBRARIES}
+        ${SDL2TTF_LIBRARIES} m)
