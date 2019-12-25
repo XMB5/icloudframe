@@ -90,13 +90,22 @@ struct loadedMedia* loadRandomSupportedMedia(SDL_Renderer* renderer, TTF_Font* f
         }
     }
     loadedMedia->texture = SDL_CreateTextureFromSurface(renderer, loadedMedia->surface);
-    assert(loadedMedia->texture);
+    if(loadedMedia->texture == NULL) {
+        fprintf(stderr, "failed to create texture from surface for image %s: %s\n", loadedMedia->mediaInfo->relativePath, SDL_GetError());
+        return NULL;
+    }
 
     loadedMedia->textSurface = TTF_RenderText_Shaded(font, loadedMedia->mediaInfo->createdDate, textColor, textColorBg);
-    assert(loadedMedia->textSurface);
+    if (!loadedMedia->textSurface) {
+        fprintf(stderr, "failed to render text %s: %s\n", loadedMedia->mediaInfo->createdDate, TTF_GetError());
+        return NULL;
+    }
     loadedMedia->textTexture = SDL_CreateTextureFromSurface(renderer, loadedMedia->textSurface);
-    assert(loadedMedia->textTexture);
-    
+    if (!loadedMedia->textTexture) {
+        fprintf(stderr, "failed to create texture from surface for text %s: %s\n", loadedMedia->mediaInfo->createdDate, TTF_GetError());
+        return NULL;
+    }
+
     return loadedMedia;
 }
 
