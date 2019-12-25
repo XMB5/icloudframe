@@ -8,14 +8,12 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/mman.h>
 #include <json-c/json.h>
 #include <unistd.h>
-#include <errno.h>
 #include <stdint.h>
 
 // seconds between refreshing media database
-#define UPDATE_INTERVAL 3600
+#define UPDATE_INTERVAL_SECONDS 3600
 #define FAVORITE_WEIGHT 10
 #define DB_JSON_FILE "/db.json"
 
@@ -31,7 +29,7 @@ void resetMedias() {
     if (favoriteMedias) {
         free(favoriteMedias);
     }
-    numNormalMedias = 0;
+    numFavoriteMedias = 0;
     if (normalMedias) {
         free(normalMedias);
     }
@@ -45,7 +43,7 @@ static time_t lastUpdate = -1;
 
 int shouldRefreshMediaDb() {
     time_t now = time(NULL);
-    return now - lastUpdate > UPDATE_INTERVAL;
+    return now - lastUpdate > UPDATE_INTERVAL_SECONDS;
 }
 
 int refreshMediaDb() {

@@ -10,9 +10,11 @@
 #include <errno.h>
 #include "media.h"
 
-#define TIME_BETWEEN_IMAGES 10000
+#define SECONDS_BETWEEN_IMAGES 15
 
 static const char* SUPPORTED_EXTENSIONS[] = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".heic", NULL};
+static const SDL_Color textColor = {255, 255, 255, 255};
+static const SDL_Color textColorBg = {0, 0, 0, 85};
 
 void toggleFullscreen(SDL_Window* window) {
     printf("toggle fullscreen\n");
@@ -30,6 +32,117 @@ int cmpExtension (const char* file, const char* extension) {
         return -1; //file shorter than extension
     }
     return strcasecmp(lastXChars, extension);
+}
+
+struct media* getRandomSupportedMedia() {
+    struct media* mediaInfo;
+    while (1) {
+        mediaInfo = getRandomMedia();
+        for (int i = 0;; i++) {
+            const char* extension = SUPPORTED_EXTENSIONS[i];
+            if (extension == NULL) break;
+            if (cmpExtension(mediaInfo->relativePath, extension) == 0) goto foundSupportedMedia;
+        }
+    }
+    foundSupportedMedia:;
+    return mediaInfo;
+}
+
+struct loadedMedia {
+    struct media* mediaInfo;
+    SDL_Surface* surface;
+    SDL_Texture* texture;
+    SDL_Surface* textSurface;
+    SDL_Texture* textTexture;
+    struct heif_context* heifContext;
+};
+
+struct loadedMedia* loadRandomSupportedMedia(SDL_Renderer* renderer, TTF_Font* font) {
+    struct loadedMedia* loadedMedia = calloc(1, sizeof(struct loadedMedia));
+    loadedMedia->mediaInfo = getRandomSupportedMedia();
+    printf("load %s\n", loadedMedia->mediaInfo->relativePath);
+    size_t fullpathLen = strlen(mediaDir) + 1 + strlen(loadedMedia->mediaInfo->relativePath) + 1;
+    char fullpath[fullpathLen];
+    int fullpathCharsWritten = snprintf(fullpath, fullpathLen, "%s/%s", mediaDir, loadedMedia->mediaInfo->relativePath);
+    assert(fullpathCharsWritten == fullpathLen - 1);
+    if (cmpExtension(fullpath, ".heic") == 0) {
+        loadedMedia->heifContext = heif_context_alloc();
+        heif_context_read_from_file(loadedMedia->heifContext, fullpath, NULL);
+        struct heif_image_handle* handle;
+        heif_context_get_primary_image_handle(loadedMedia->heifContext, &handle);
+        struct heif_image* img;
+        heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGB, NULL);
+        assert(heif_image_get_chroma_format(img) == heif_chroma_interleaved_24bit);
+        int stride;
+        const uint8_t* data = heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride);
+        int width = heif_image_get_width(img, heif_channel_interleaved);
+        int height = heif_image_get_height(img, heif_channel_interleaved);
+        loadedMedia->surface = SDL_CreateRGBSurfaceWithFormatFrom((void*) data, width, height, 24, stride, SDL_PIXELFORMAT_RGB24);
+        if (!loadedMedia->surface) {
+            fprintf(stderr, "failed to create surface from heic image RGB data: %s\n", SDL_GetError());
+            return NULL;
+        }
+    } else {
+        loadedMedia->surface = IMG_Load(fullpath);
+        if (!loadedMedia->surface) {
+            fprintf(stderr, "IMG_Load error: %s\n", IMG_GetError());
+            return NULL;
+        }
+    }
+    loadedMedia->texture = SDL_CreateTextureFromSurface(renderer, loadedMedia->surface);
+    assert(loadedMedia->texture);
+
+    loadedMedia->textSurface = TTF_RenderText_Shaded(font, loadedMedia->mediaInfo->createdDate, textColor, textColorBg);
+    assert(loadedMedia->textSurface);
+    loadedMedia->textTexture = SDL_CreateTextureFromSurface(renderer, loadedMedia->textSurface);
+    assert(loadedMedia->textTexture);
+    
+    return loadedMedia;
+}
+
+void freeLoadedMedia(struct loadedMedia* loadedMedia) {
+    SDL_DestroyTexture(loadedMedia->texture);
+    SDL_FreeSurface(loadedMedia->surface);
+    SDL_DestroyTexture(loadedMedia->textTexture);
+    SDL_FreeSurface(loadedMedia->textSurface);
+    if (loadedMedia->heifContext != NULL) {
+        heif_context_free(loadedMedia->heifContext);
+    }
+    free(loadedMedia);
+}
+
+SDL_Rect getRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window) {
+    int windowWidth, windowHeight;
+    SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+
+    double idealXShrinkFactor = (double) windowWidth / (double) loadedMedia->surface->w;
+    double idealYShrinkFactor = (double) windowHeight / (double) loadedMedia->surface->h;
+    double shrinkFactor = fmin(idealXShrinkFactor, idealYShrinkFactor);
+    double shrunkWidth = shrinkFactor * loadedMedia->surface->w;
+    double shrunkHeight = shrinkFactor * loadedMedia->surface->h;
+    double middleX = (double) windowWidth / 2;
+    double middleY = (double) windowHeight / 2;
+    SDL_Rect rect;
+    rect.x = (int) (middleX - shrunkWidth / 2);
+    rect.y = (int) (middleY - shrunkHeight / 2);
+    rect.w = (int) shrunkWidth;
+    rect.h = (int) shrunkHeight;
+    return rect;
+}
+
+SDL_Rect getTextRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window, TTF_Font* font) {
+    int windowWidth, windowHeight;
+    SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+
+    SDL_Rect textRect;
+    if (TTF_SizeText(font, loadedMedia->mediaInfo->createdDate, &textRect.w, &textRect.h)) {
+        fprintf(stderr, "error getting size of text %s: %s\n", loadedMedia->mediaInfo->createdDate, TTF_GetError());
+        textRect.w = -1;
+        return textRect;
+    }
+    textRect.x = windowWidth - textRect.w;
+    textRect.y = windowHeight - textRect.h;
+    return textRect;
 }
 
 int main(int argc, const char* argv[]) {
@@ -78,125 +191,65 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
-    SDL_Color textColor;
-    textColor.r = 255;
-    textColor.g = 255;
-    textColor.b = 255;
-    textColor.a = 255;
-
-    SDL_Color textColorBg;
-    textColorBg.r = 0;
-    textColorBg.b = 0;
-    textColorBg.g = 0;
-    textColorBg.a = 85;
-
     setlocale(LC_ALL, "C");
 
     time_t lastSwitch = -1;
 
-    struct media *mediaInfo = NULL;
-    SDL_Surface* surface = NULL;
-    SDL_Texture* texture = NULL;
-    SDL_Surface* textSurface = NULL;
-    SDL_Texture* textTexture = NULL;
-    struct heif_context* heifContext = NULL;
+    struct loadedMedia* loadedMedia = NULL;
+    struct loadedMedia* nextLoadedMedia = NULL;
 
     while (1) {
-        if (shouldRefreshMediaDb()) {
-            refreshMediaDb();
-        }
         time_t now = time(NULL);
-        if (now - lastSwitch > TIME_BETWEEN_IMAGES) {
+        if (now - lastSwitch > SECONDS_BETWEEN_IMAGES) {
             lastSwitch = now;
-            SDL_DestroyTexture(texture);
-            SDL_FreeSurface(surface);
-            SDL_DestroyTexture(textTexture);
-            SDL_FreeSurface(textSurface);
-            if (heifContext != NULL) {
-                heif_context_free(heifContext);
-            }
-            while (1) {
-                mediaInfo = getRandomMedia();
-                for (int i = 0;; i++) {
-                    const char* extension = SUPPORTED_EXTENSIONS[i];
-                    if (extension == NULL) break;
-                    if (cmpExtension(mediaInfo->relativePath, extension) == 0) goto foundSupportedMedia;
+            if (shouldRefreshMediaDb()) {
+                refreshMediaDb();
+                if (loadedMedia) {
+                    freeLoadedMedia(loadedMedia);
+                    loadedMedia = NULL;
+                }
+                if (nextLoadedMedia) {
+                    freeLoadedMedia(nextLoadedMedia);
+                    nextLoadedMedia = NULL;
                 }
             }
-            foundSupportedMedia:;
-            printf("load %s\n", mediaInfo->relativePath);
-            size_t fullpathLen = strlen(mediaDir) + 1 + strlen(mediaInfo->relativePath) + 1;
-            char fullpath[fullpathLen];
-            int fullpathCharsWritten = snprintf(fullpath, fullpathLen, "%s/%s", mediaDir, mediaInfo->relativePath);
-            assert(fullpathCharsWritten == fullpathLen - 1);
-            if (cmpExtension(fullpath, ".heic") == 0) {
-                heifContext = heif_context_alloc();
-                heif_context_read_from_file(heifContext, fullpath, NULL);
-                struct heif_image_handle* handle;
-                heif_context_get_primary_image_handle(heifContext, &handle);
-                struct heif_image* img;
-                heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGB, NULL);
-                assert(heif_image_get_chroma_format(img) == heif_chroma_interleaved_24bit);
-                int stride;
-                const uint8_t* data = heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride);
-                int width = heif_image_get_width(img, heif_channel_interleaved);
-                int height = heif_image_get_height(img, heif_channel_interleaved);
-                surface = SDL_CreateRGBSurfaceWithFormatFrom((void*) data, width, height, 24, stride, SDL_PIXELFORMAT_RGB24);
-                if (!surface) {
-                    fprintf(stderr, "failed to create surface from heic image RGB data: %s\n", SDL_GetError());
-                    return 1;
-                }
-            } else {
-                surface = IMG_Load(fullpath);
-                if (!surface) {
-                    fprintf(stderr, "IMG_Load error: %s\n", IMG_GetError());
-                    return 1;
-                }
-            }
-            texture = SDL_CreateTextureFromSurface(renderer, surface);
-            assert(texture);
 
-            textSurface = TTF_RenderText_Shaded(font, mediaInfo->createdDate, textColor, textColorBg);
-            assert(textSurface);
-            textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
-            assert(textTexture);
+            if (nextLoadedMedia) {
+                loadedMedia = nextLoadedMedia;
+                nextLoadedMedia = NULL;
+            } else {
+                loadedMedia = loadRandomSupportedMedia(renderer, font);
+                if (loadedMedia == NULL) {
+                    return 1;
+                }
+            }
         }
 
-        int windowWidth, windowHeight;
-        SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-
-        double idealXShrinkFactor = (double) windowWidth / (double) surface->w;
-        double idealYShrinkFactor = (double) windowHeight / (double) surface->h;
-        double shrinkFactor = fmin(idealXShrinkFactor, idealYShrinkFactor);
-        double shrunkWidth = shrinkFactor * surface->w;
-        double shrunkHeight = shrinkFactor * surface->h;
-        double middleX = (double) windowWidth / 2;
-        double middleY = (double) windowHeight / 2;
-        SDL_Rect rect;
-        rect.x = (int) (middleX - shrunkWidth / 2);
-        rect.y = (int) (middleY - shrunkHeight / 2);
-        rect.w = (int) shrunkWidth;
-        rect.h = (int) shrunkHeight;
-
-        SDL_Rect textRect;
-        if (TTF_SizeText(font, mediaInfo->createdDate, &textRect.w, &textRect.h)) {
-            fprintf(stderr, "error getting size of text %s: %s\n", mediaInfo->createdDate, TTF_GetError());
+        SDL_Rect rect = getRectForMedia(loadedMedia, window);
+        SDL_Rect textRect = getTextRectForMedia(loadedMedia, window, font);
+        if (textRect.w == -1) {
+            //error
             return 1;
         }
-        textRect.x = windowWidth - textRect.w;
-        textRect.y = windowHeight - textRect.h;
 
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, NULL, &rect);
-        SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+        SDL_RenderCopy(renderer, loadedMedia->texture, NULL, &rect);
+        SDL_RenderCopy(renderer, loadedMedia->textTexture, NULL, &textRect);
         SDL_RenderPresent(renderer);
+
+        if (nextLoadedMedia == NULL) {
+            nextLoadedMedia = loadRandomSupportedMedia(renderer, font);
+            if (nextLoadedMedia == NULL) {
+                return 1;
+            }
+        }
 
         SDL_ClearError();
         SDL_Event e;
         while (1) {
             time(&now);
-            time_t maxWaitTime = TIME_BETWEEN_IMAGES + lastSwitch - now;
-            if (SDL_WaitEventTimeout(&e, maxWaitTime)) {
+            time_t maxWaitSeconds = SECONDS_BETWEEN_IMAGES + lastSwitch - now;
+            if (SDL_WaitEventTimeout(&e, (int) maxWaitSeconds * 1000)) {
                 if (e.type == SDL_QUIT) {
                     return 0;
                 } else if (e.type == SDL_KEYDOWN) {
