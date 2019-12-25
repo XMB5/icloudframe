@@ -204,7 +204,6 @@ int main(int argc, const char* argv[]) {
             } else {
                 const char* error = SDL_GetError();
                 if (*error == '\0') {
-                    printf("timed out waiting for event\n");
                     //no error, timed out
                     lastSwitch = -1; //force new photo (in case SDL_WaitEventTimeout ends a little too early)
                     goto reloop;
