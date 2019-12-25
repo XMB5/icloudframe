@@ -62,6 +62,8 @@ int main(int argc, const char* argv[]) {
     SDL_Window* window = SDL_CreateWindow("icloudframe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 0, 0, SDL_WINDOW_FULLSCREEN | SDL_WINDOW_RESIZABLE);
     assert(window);
 
+    SDL_ShowCursor(SDL_DISABLE);
+
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     assert(renderer);
 
