@@ -102,7 +102,6 @@ int main(int argc, const char* argv[]) {
         }
         time_t now = time(NULL);
         if (now - lastSwitch > TIME_BETWEEN_IMAGES) {
-            printf("load new photo\n");
             lastSwitch = now;
             SDL_DestroyTexture(texture);
             SDL_FreeSurface(surface);
@@ -120,6 +119,7 @@ int main(int argc, const char* argv[]) {
                 }
             }
             foundSupportedMedia:;
+            printf("load %s\n", mediaInfo->relativePath);
             size_t fullpathLen = strlen(mediaDir) + 1 + strlen(mediaInfo->relativePath) + 1;
             char fullpath[fullpathLen];
             int fullpathCharsWritten = snprintf(fullpath, fullpathLen, "%s/%s", mediaDir, mediaInfo->relativePath);
@@ -155,11 +155,8 @@ int main(int argc, const char* argv[]) {
             assert(textSurface);
             textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
             assert(textTexture);
-
-            printf("loaded %s\n", mediaInfo->relativePath);
         }
 
-        printf("repaint\n");
         int windowWidth, windowHeight;
         SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 
@@ -202,7 +199,6 @@ int main(int argc, const char* argv[]) {
                         toggleFullscreen(window);
                     }
                 } else if (e.type == SDL_WINDOWEVENT) {
-                    printf("window event\n");
                     goto reloop;
                 }
             } else {
