@@ -34,6 +34,8 @@ int cmpExtension (const char* file, const char* extension) {
     return strcasecmp(lastXChars, extension);
 }
 
+// returns a random struct media* ending with an extension from SUPPORTED_EXTENSIONS
+// still might not be able to load the image if it is too large (>8192 in any dimension)
 struct media* getRandomSupportedMedia() {
     struct media* mediaInfo;
     while (1) {
@@ -57,38 +59,58 @@ struct loadedMedia {
     struct heif_context* heifContext;
 };
 
+void freeLoadedMedia(struct loadedMedia* loadedMedia) {
+    if (loadedMedia->texture) SDL_DestroyTexture(loadedMedia->texture);
+    if (loadedMedia->surface) SDL_FreeSurface(loadedMedia->surface);
+    if (loadedMedia->textTexture) SDL_DestroyTexture(loadedMedia->textTexture);
+    if (loadedMedia->textSurface) SDL_FreeSurface(loadedMedia->textSurface);
+    if (loadedMedia->heifContext) heif_context_free(loadedMedia->heifContext);
+    free(loadedMedia);
+}
+
+
 struct loadedMedia* loadRandomSupportedMedia(SDL_Renderer* renderer, TTF_Font* font) {
-    struct loadedMedia* loadedMedia = calloc(1, sizeof(struct loadedMedia));
-    loadedMedia->mediaInfo = getRandomSupportedMedia();
-    printf("load %s\n", loadedMedia->mediaInfo->relativePath);
-    size_t fullpathLen = strlen(mediaDir) + 1 + strlen(loadedMedia->mediaInfo->relativePath) + 1;
-    char fullpath[fullpathLen];
-    int fullpathCharsWritten = snprintf(fullpath, fullpathLen, "%s/%s", mediaDir, loadedMedia->mediaInfo->relativePath);
-    assert(fullpathCharsWritten == fullpathLen - 1);
-    if (cmpExtension(fullpath, ".heic") == 0) {
-        loadedMedia->heifContext = heif_context_alloc();
-        heif_context_read_from_file(loadedMedia->heifContext, fullpath, NULL);
-        struct heif_image_handle* handle;
-        heif_context_get_primary_image_handle(loadedMedia->heifContext, &handle);
-        struct heif_image* img;
-        heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGB, NULL);
-        assert(heif_image_get_chroma_format(img) == heif_chroma_interleaved_24bit);
-        int stride;
-        const uint8_t* data = heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride);
-        int width = heif_image_get_width(img, heif_channel_interleaved);
-        int height = heif_image_get_height(img, heif_channel_interleaved);
-        loadedMedia->surface = SDL_CreateRGBSurfaceWithFormatFrom((void*) data, width, height, 24, stride, SDL_PIXELFORMAT_RGB24);
-        if (!loadedMedia->surface) {
-            fprintf(stderr, "failed to create surface from heic image RGB data: %s\n", SDL_GetError());
-            return NULL;
+    struct loadedMedia* loadedMedia;
+    while (1) {
+        loadedMedia = calloc(1, sizeof(struct loadedMedia));
+        loadedMedia->mediaInfo = getRandomSupportedMedia();
+        printf("load %s\n", loadedMedia->mediaInfo->relativePath);
+        size_t fullpathLen = strlen(mediaDir) + 1 + strlen(loadedMedia->mediaInfo->relativePath) + 1;
+        char fullpath[fullpathLen];
+        int fullpathCharsWritten = snprintf(fullpath, fullpathLen, "%s/%s", mediaDir, loadedMedia->mediaInfo->relativePath);
+        assert(fullpathCharsWritten == fullpathLen - 1);
+        if (cmpExtension(fullpath, ".heic") == 0) {
+            loadedMedia->heifContext = heif_context_alloc();
+            heif_context_read_from_file(loadedMedia->heifContext, fullpath, NULL);
+            struct heif_image_handle* handle;
+            heif_context_get_primary_image_handle(loadedMedia->heifContext, &handle);
+            struct heif_image* img;
+            heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGB, NULL);
+            assert(heif_image_get_chroma_format(img) == heif_chroma_interleaved_24bit);
+            int stride;
+            const uint8_t* data = heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride);
+            int width = heif_image_get_width(img, heif_channel_interleaved);
+            int height = heif_image_get_height(img, heif_channel_interleaved);
+            loadedMedia->surface = SDL_CreateRGBSurfaceWithFormatFrom((void*) data, width, height, 24, stride, SDL_PIXELFORMAT_RGB24);
+            if (!loadedMedia->surface) {
+                fprintf(stderr, "failed to create surface from heic image RGB data: %s\n", SDL_GetError());
+                return NULL;
+            }
+        } else {
+            loadedMedia->surface = IMG_Load(fullpath);
+            if (!loadedMedia->surface) {
+                fprintf(stderr, "IMG_Load error: %s\n", IMG_GetError());
+                return NULL;
+            }
         }
-    } else {
-        loadedMedia->surface = IMG_Load(fullpath);
-        if (!loadedMedia->surface) {
-            fprintf(stderr, "IMG_Load error: %s\n", IMG_GetError());
-            return NULL;
+        if (loadedMedia->surface->w <= 8192 && loadedMedia->surface->h <= 8192) {
+            break;
+        } else {
+            printf("image too large, loading a new one\n");
+            freeLoadedMedia(loadedMedia);
         }
     }
+
     loadedMedia->texture = SDL_CreateTextureFromSurface(renderer, loadedMedia->surface);
     if(loadedMedia->texture == NULL) {
         fprintf(stderr, "failed to create texture from surface for image %s: %s\n", loadedMedia->mediaInfo->relativePath, SDL_GetError());
@@ -107,17 +129,6 @@ struct loadedMedia* loadRandomSupportedMedia(SDL_Renderer* renderer, TTF_Font* f
     }
 
     return loadedMedia;
-}
-
-void freeLoadedMedia(struct loadedMedia* loadedMedia) {
-    SDL_DestroyTexture(loadedMedia->texture);
-    SDL_FreeSurface(loadedMedia->surface);
-    SDL_DestroyTexture(loadedMedia->textTexture);
-    SDL_FreeSurface(loadedMedia->textSurface);
-    if (loadedMedia->heifContext != NULL) {
-        heif_context_free(loadedMedia->heifContext);
-    }
-    free(loadedMedia);
 }
 
 SDL_Rect getRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window) {
@@ -211,12 +222,13 @@ int main(int argc, const char* argv[]) {
         time_t now = time(NULL);
         if (now - lastSwitch > SECONDS_BETWEEN_IMAGES) {
             lastSwitch = now;
+            if (loadedMedia) {
+                freeLoadedMedia(loadedMedia);
+                loadedMedia = NULL;
+            }
+
             if (shouldRefreshMediaDb()) {
                 refreshMediaDb();
-                if (loadedMedia) {
-                    freeLoadedMedia(loadedMedia);
-                    loadedMedia = NULL;
-                }
                 if (nextLoadedMedia) {
                     freeLoadedMedia(nextLoadedMedia);
                     nextLoadedMedia = NULL;
