@@ -131,12 +131,16 @@ struct loadedMedia* loadRandomSupportedMedia(SDL_Renderer* renderer, TTF_Font* f
     return loadedMedia;
 }
 
-SDL_Rect getRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window) {
+SDL_Rect getRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window, double angle) {
     int windowWidth, windowHeight;
     SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 
-    double idealXShrinkFactor = (double) windowWidth / (double) loadedMedia->surface->w;
-    double idealYShrinkFactor = (double) windowHeight / (double) loadedMedia->surface->h;
+    int swapImageDimensions = angle == 90 || angle == -90;
+    int imageWidth = swapImageDimensions ? loadedMedia->surface->h : loadedMedia->surface->w;
+    int imageHeight = swapImageDimensions ? loadedMedia->surface->w : loadedMedia->surface->h;
+
+    double idealXShrinkFactor = (double) windowWidth / (double) imageWidth;
+    double idealYShrinkFactor = (double) windowHeight / (double) imageHeight;
     double shrinkFactor = fmin(idealXShrinkFactor, idealYShrinkFactor);
     double shrunkWidth = shrinkFactor * loadedMedia->surface->w;
     double shrunkHeight = shrinkFactor * loadedMedia->surface->h;
@@ -246,7 +250,10 @@ int main(int argc, const char* argv[]) {
             }
         }
 
-        SDL_Rect rect = getRectForMedia(loadedMedia, window);
+        double angle = getAngleForOrientation(loadedMedia->mediaInfo->orientation);
+        SDL_RendererFlip flip = getFlipForOrientation(loadedMedia->mediaInfo->orientation);
+
+        SDL_Rect rect = getRectForMedia(loadedMedia, window, angle);
         SDL_Rect textRect = getTextRectForMedia(loadedMedia, window, font);
         if (textRect.w == -1) {
             //error
@@ -254,7 +261,7 @@ int main(int argc, const char* argv[]) {
         }
 
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, loadedMedia->texture, NULL, &rect);
+        SDL_RenderCopyEx(renderer, loadedMedia->texture, NULL, &rect, angle, NULL, flip);
         SDL_RenderCopy(renderer, loadedMedia->textTexture, NULL, &textRect);
         SDL_RenderPresent(renderer);
 

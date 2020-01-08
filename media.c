@@ -89,6 +89,11 @@ int refreshMediaDb() {
             normalIndex++;
         }
         mediaInfo->isFavorite = isFavorite;
+        json_object_object_get_ex(mediaJson, "orientation", &tmpJsonObj);
+        mediaInfo->orientation = json_object_get_int(tmpJsonObj);
+        if (mediaInfo->orientation == 0) {
+            mediaInfo->orientation = ORIENTATION_UP;
+        }
         json_object_object_get_ex(mediaJson, "hasLivePhoto", &tmpJsonObj);
         mediaInfo->hasLivePhoto = json_object_get_boolean(tmpJsonObj);
         json_object_object_get_ex(mediaJson, "createdDate", &tmpJsonObj);
@@ -128,4 +133,32 @@ struct media* getRandomMedia() {
     int numMediasInList = favorite ? numFavoriteMedias : numNormalMedias;
     int chosenMediaNum = (int) (numMediasInList * ((double) randomNums[1] / POW_2_32));
     return mediasList + chosenMediaNum;
+}
+
+double getAngleForOrientation(enum orientation orientation) {
+    switch (orientation) {
+        case ORIENTATION_DOWN:
+            return 180;
+        case ORIENTATION_LEFT:
+        case ORIENTATION_LEFT_MIRRORED:
+            return -90;
+        case ORIENTATION_RIGHT:
+        case ORIENTATION_RIGHT_MIRRORED:
+            return 90;
+        default:
+            return 0;
+    }
+}
+
+SDL_RendererFlip getFlipForOrientation(enum orientation orientation) {
+    switch (orientation) {
+        case ORIENTATION_DOWN_MIRRORED:
+            return SDL_FLIP_VERTICAL;
+        case ORIENTATION_LEFT_MIRRORED:
+        case ORIENTATION_RIGHT_MIRRORED:
+        case ORIENTATION_UP_MIRRORED:
+            return SDL_FLIP_HORIZONTAL;
+        default:
+            return SDL_FLIP_NONE;
+    }
 }
