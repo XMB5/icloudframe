@@ -23,7 +23,7 @@ void toggleFullscreen(SDL_Window* window) {
 }
 
 void help() {
-    fprintf(stderr, "usage: icloudframe -d <media_directory> -f <path_to_ttf> [-s <font_size=32>]\n");
+    fprintf(stderr, "usage: icloudframe -d <media_directory> -f <path_to_ttf> [-s <font_size=32>] [--low-mem]\n");
 }
 
 int cmpExtension (const char* file, const char* extension) {
@@ -172,11 +172,14 @@ SDL_Rect getTextRectForMedia(struct loadedMedia* loadedMedia, SDL_Window* window
 int main(int argc, const char* argv[]) {
     const char* ttfPath = NULL;
     int fontSize = 32;
+    int lowMem = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) {
             mediaDir = argv[i + 1];
+            i++;
         } else if (strcmp(argv[i], "-f") == 0) {
             ttfPath = argv[i + 1];
+            i++;
         } else if (strcmp(argv[i], "-s") == 0) {
             const char* fontSizeStr = argv[i + 1];
             if (fontSizeStr) {
@@ -187,6 +190,9 @@ int main(int argc, const char* argv[]) {
                     return 1;
                 }
             }
+            i++;
+        } else if (strcmp(argv[i], "--low-mem") == 0) {
+            lowMem = 1;
         }
     }
     if (ttfPath == NULL || mediaDir == NULL || fontSize <= 0) {
@@ -265,6 +271,11 @@ int main(int argc, const char* argv[]) {
         SDL_RenderCopy(renderer, loadedMedia->textTexture, NULL, &textRect);
         SDL_RenderPresent(renderer);
 
+        if (lowMem) {
+            freeLoadedMedia(loadedMedia);
+            loadedMedia = NULL;
+        }
+
         if (nextLoadedMedia == NULL) {
             nextLoadedMedia = loadRandomSupportedMedia(renderer, font);
             if (nextLoadedMedia == NULL) {
@@ -285,7 +296,11 @@ int main(int argc, const char* argv[]) {
                         toggleFullscreen(window);
                     }
                 } else if (e.type == SDL_WINDOWEVENT) {
-                    goto reloop;
+                    if (!lowMem) {
+                        //in low memory mode, we already freed the image data
+                        //so we can't redraw it
+                        goto reloop;
+                    }
                 }
             } else {
                 const char* error = SDL_GetError();
