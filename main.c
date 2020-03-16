@@ -288,6 +288,9 @@ int main(int argc, const char* argv[]) {
         while (1) {
             time(&now);
             time_t maxWaitSeconds = SECONDS_BETWEEN_IMAGES + lastSwitch - now;
+            if (maxWaitSeconds < 1) {
+                maxWaitSeconds = 1;
+            }
             if (SDL_WaitEventTimeout(&e, (int) maxWaitSeconds * 1000)) {
                 if (e.type == SDL_QUIT) {
                     return 0;
